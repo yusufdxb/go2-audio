@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-nr = pytest.importorskip("noisereduce")
+pytest.importorskip("noisereduce")
 
 from go2_audio.denoise import FRAME_SIZE, NOISE_LEARN_FRAMES, NoiseReducer  # noqa: E402
 

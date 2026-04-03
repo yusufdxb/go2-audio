@@ -56,15 +56,14 @@ logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Pre-built layout — reused for every published message.
-_AUDIO_LAYOUT = MultiArrayLayout(
-    dim=[
-        MultiArrayDimension(label="samples", size=FRAME_SIZE, stride=FRAME_SIZE),
-        MultiArrayDimension(label="sample_rate", size=SAMPLE_RATE, stride=0),
-        MultiArrayDimension(label="channels", size=1, stride=0),
-    ],
-    data_offset=0,
-)
+# Frozen layout dimensions — shared across messages (immutable after creation).
+# data_offset is set per-message, so the layout itself is built fresh each time
+# to avoid mutating a shared object.
+_LAYOUT_DIMS = [
+    MultiArrayDimension(label="samples", size=FRAME_SIZE, stride=FRAME_SIZE),
+    MultiArrayDimension(label="sample_rate", size=SAMPLE_RATE, stride=0),
+    MultiArrayDimension(label="channels", size=1, stride=0),
+]
 
 
 class Go2AudioNode(Node):
@@ -106,8 +105,7 @@ class Go2AudioNode(Node):
             out = mono
 
         audio_msg = Int16MultiArray()
-        audio_msg.layout = _AUDIO_LAYOUT
-        audio_msg.layout.data_offset = self._frame_count
+        audio_msg.layout = MultiArrayLayout(dim=_LAYOUT_DIMS, data_offset=self._frame_count)
         audio_msg.data = out.tolist()
         self._audio_pub.publish(audio_msg)
 

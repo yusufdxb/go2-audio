@@ -1,4 +1,4 @@
-"""Root conftest — gives a helpful error when ROS pytest plugins interfere.
+"""Root conftest — warns when ROS pytest plugins may interfere.
 
 On machines with ROS 2 installed, system-wide pytest plugins
 (launch_testing, ament_*) register hooks that crash modern pytest.
@@ -13,15 +13,6 @@ or:
 
 import os
 import sys
-
-
-def pytest_configure(config):
-    # If we got this far, plugins loaded successfully — nothing to do.
-    # This hook exists so the docstring above appears when pytest
-    # introspects conftest.py, and to catch the case where someone
-    # imports conftest directly.
-    pass
-
 
 # If ROS plugins are present and the env var is not set, warn early.
 # This runs at import time, before pytest's plugin validation.
