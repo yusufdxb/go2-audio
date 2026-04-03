@@ -1,78 +1,74 @@
 # Unitree Go2 Audio Capture
 
-Get **real microphone audio** from the Unitree Go2 robot.
+Capture **real microphone audio** from the Unitree Go2 robot via WebRTC.
 
-> **TL;DR**: The Go2's DDS `/audiosender` topic is broken — it sends uninitialized random bytes (white noise). Real audio comes through the **WebRTC audio track** (Opus codec, 48kHz stereo). This repo provides working code to capture it.
+> **TL;DR**: The Go2's DDS `/audiosender` topic delivers uninitialized memory (white noise). Real audio comes through the **WebRTC audio track** (Opus codec, 48 kHz stereo). This package provides working code to capture it.
 
 ## Why This Exists
 
-If you've tried subscribing to `/audiosender` on the Go2 and got noise, you're not alone. We ran 7 independent spectral tests confirming the DDS audio topic is garbage:
+The Go2 publishes an `/audiosender` DDS topic that appears to contain audio but actually contains random bytes. Manual spectral analysis confirmed this — see [`docs/dds_audio_analysis.md`](docs/dds_audio_analysis.md) for the full investigation and test results.
 
-| Test | Expected (real audio) | Measured | Verdict |
-|------|----------------------|----------|---------|
-| Spectral flatness | 0.1–0.5 | 0.994 | White noise |
-| Zero-crossing rate | 0.1–0.3 | 0.505 | White noise |
-| Dynamic range | 10–20+ dB | 1.8 dB | No signal |
-| Byte entropy | < 6 bits | 7.97/8.0 | Uniform random |
-
-The Go2 delivers microphone audio exclusively via its **WebRTC connection** as an Opus-encoded audio track at 48kHz stereo.
+The Go2 delivers microphone audio exclusively via its **WebRTC connection** as an Opus-encoded audio track at 48 kHz stereo.
 
 ## Compatibility
 
-- **Go2 Pro** and **Go2 Edu** — works (has microphone hardware)
-- **Go2 Air** — no microphone, audio not available
+| Model | Audio | Notes |
+|-------|-------|-------|
+| Go2 Pro | Yes | Verified on hardware |
+| Go2 Edu | Yes | Expected to work (same hardware) |
+| Go2 Air | No | No microphone hardware |
+
+## Prerequisites
+
+```bash
+# Required for unitree-webrtc-connect (pyaudio dependency)
+sudo apt install portaudio19-dev
+```
+
+## Install
+
+```bash
+pip install -e .                   # core (capture to WAV)
+pip install -e ".[playback]"       # + live speaker playback
+pip install -e ".[ros]"            # + ROS 2 noise reduction
+pip install -e ".[dev]"            # + pytest, ruff
+```
 
 ## Quick Start
 
-### Option 1: Standalone (no ROS 2)
-
-Capture audio to a WAV file with zero ROS dependencies:
+### Standalone capture (no ROS 2)
 
 ```bash
-pip install unitree-webrtc-connect numpy sounddevice
+# Record 10 seconds to WAV
+go2-audio-capture --robot-ip 192.168.123.161 --duration 10 --output audio.wav
 
-python standalone/capture_audio.py --robot-ip 192.168.123.161 --duration 10 --output audio.wav
+# Live playback through speakers
+go2-audio-capture --robot-ip 192.168.123.161 --play
 ```
 
-### Option 2: ROS 2 Node
+### ROS 2 node
 
-Publishes `Int16MultiArray` on `/audio/raw` at ~50Hz (48kHz mono, 960 samples/frame):
-
-```bash
-pip install unitree-webrtc-connect noisereduce
-
-# Run the node
-python ros2_node/go2_audio_node.py --ros-args -p robot_ip:=192.168.123.161
-
-# Optional: enable noise reduction
-python ros2_node/go2_audio_node.py --ros-args -p robot_ip:=192.168.123.161 -p noise_reduce:=true
-```
-
-### Option 3: Shell Scripts
+Publishes `Int16MultiArray` on `/audio/raw` at ~50 Hz (48 kHz mono, 960 samples/frame):
 
 ```bash
-# Live playback through speakers (with bandpass filter + noise reduction)
-./scripts/listen_audio.sh          # default 10x gain
-./scripts/listen_audio.sh 20       # 20x gain
+# Direct
+go2-audio-node --ros-args -p robot_ip:=192.168.123.161
 
-# Record to WAV file with spectrum analysis
-./scripts/record_audio.sh 10       # record 10 seconds
+# With noise reduction (learns profile from first 2s, then applies)
+go2-audio-node --ros-args -p robot_ip:=192.168.123.161 -p noise_reduce:=true
+
+# Via launch file (requires colcon build first — see ROS 2 Package section)
+ros2 launch go2_audio audio.launch.py robot_ip:=192.168.123.161 noise_reduce:=true
 ```
 
 ## How It Works
 
-The Go2 runs a WebRTC server. To get audio:
-
 1. **Establish a WebRTC connection** to the robot (SDP offer/answer via HTTP)
 2. **Activate the audio channel** by sending `{"type":"aud","data":"on"}` over the SCTP data channel
 3. **Receive Opus audio frames** on the WebRTC audio track
-4. **Decode to PCM** — 48kHz stereo, 16-bit signed integers, 960 samples per frame
+4. **Decode to PCM** — 48 kHz stereo, 16-bit signed integers, 960 samples per frame
 
-This repo uses the [`unitree-webrtc-connect`](https://github.com/unitreerobotics/unitree_sdk2_python) library which handles the WebRTC negotiation and SCTP data channel correctly.
-
-### Why not just fix the custom WebRTC code?
-
-Many Go2 ROS 2 packages use a custom `go2_connection.py` with a **broken SCTP data channel**. The `{"type":"aud","data":"on"}` message never reaches the robot, so the microphone is never activated. Until that SCTP issue is fixed upstream, using `unitree-webrtc-connect` is the reliable path.
+This package uses [`unitree-webrtc-connect`](https://github.com/unitreerobotics/unitree_sdk2_python) which handles WebRTC negotiation and SCTP correctly. Many community Go2 packages use a custom `go2_connection.py` with a broken SCTP data channel where the audio activation message never reaches the robot.
 
 ## Audio Format
 
@@ -80,46 +76,89 @@ Many Go2 ROS 2 packages use a custom `go2_connection.py` with a **broken SCTP da
 |----------|-------|
 | Source codec | Opus (WebRTC) |
 | Sample rate | 48,000 Hz |
-| Channels | Stereo (mixed to mono in this code) |
+| Channels | Stereo (mixed to mono) |
 | Bit depth | 16-bit signed integer |
-| Frame size | 960 samples (~20ms) |
+| Frame size | 960 samples (~20 ms) |
 | Publish rate | ~50 Hz |
-| ROS 2 topic | `/audio/raw` (Int16MultiArray) |
+| ROS 2 topic | `/audio/raw` (`Int16MultiArray`) |
+
+### Message metadata
+
+The `Int16MultiArray.layout` encodes the audio contract so consumers can discover the format programmatically:
+
+```
+layout.dim[0]: label="samples",    size=960,   stride=960   # frame size
+layout.dim[1]: label="sample_rate", size=48000, stride=0     # Hz
+layout.dim[2]: label="channels",   size=1,     stride=0     # mono
+layout.data_offset: <frame_sequence_number>                  # monotonic counter
+```
 
 ## Audio Quality Notes
 
-The Go2's internal microphone picks up significant **motor noise** (dominant below 300Hz). For better audio quality:
+The Go2's internal microphone picks up significant **motor noise** (dominant below 300 Hz):
 
-- **Bandpass filter** (300–3000 Hz) removes motor rumble — included in `listen_audio.sh`
-- **Spectral subtraction** learns the noise profile in the first ~1 second, then subtracts it — included in `listen_audio.sh` and optional in the ROS 2 node
+- **Noise reduction** (ROS 2 node `noise_reduce:=true`) — learns the noise profile from the first ~2 seconds, then applies stationary spectral subtraction
 - **External USB microphone** on a companion computer (Jetson, etc.) gives much cleaner audio for speech recognition
+
+## Development
+
+```bash
+pip install -e ".[dev,ros]"
+make test        # runs pytest (handles ROS plugin conflicts automatically)
+make lint        # ruff check + format check
+```
+
+To use a specific Python interpreter: `make test PYTHON=python3.11`
+
+**Why `make test` instead of `pytest` directly?** On machines with ROS 2 installed, system-wide pytest plugins (`launch_testing`, `ament_*`) auto-load and crash pytest due to hook incompatibilities. The Makefile sets `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` to block them. On non-ROS machines or in CI, bare `python3 -m pytest` works fine.
+
+## ROS 2 Package
+
+This repo is structured as both a pip-installable Python package and a ROS 2 `ament_python` package. To build with colcon:
+
+```bash
+cd ~/ros2_ws/src
+ln -s /path/to/go2-audio .
+cd ~/ros2_ws
+colcon build --packages-select go2_audio
+source install/setup.bash
+ros2 launch go2_audio audio.launch.py
+```
 
 ## Repository Structure
 
 ```
 go2-audio/
-├── README.md
-├── standalone/
-│   └── capture_audio.py       # No ROS 2 needed — captures to WAV
-├── ros2_node/
-│   └── go2_audio_node.py      # Full ROS 2 node with noise reduction
-├── scripts/
-│   ├── listen_audio.sh        # Live playback with filtering
-│   └── record_audio.sh        # Record to WAV + spectrum analysis
-└── docs/
-    └── dds_audio_analysis.md  # Full investigation of why /audiosender is broken
+├── go2_audio/              # Python package
+│   ├── __init__.py
+│   ├── audio_utils.py      # Shared stereo-to-mono, RMS utilities
+│   ├── capture.py          # Standalone capture (no ROS 2)
+│   ├── denoise.py          # NoiseReducer + audio constants (no ROS deps)
+│   └── ros_node.py         # ROS 2 node
+├── launch/
+│   └── audio.launch.py     # ROS 2 launch file
+├── tests/
+│   ├── test_audio_utils.py
+│   ├── test_capture.py
+│   ├── test_noise_reducer.py
+│   └── test_ros_node.py    # Layout, frame contract, sequence tests
+├── docs/
+│   └── dds_audio_analysis.md
+├── conftest.py             # ROS plugin conflict warning
+├── setup.py                # Shim for colcon/ament_python
+├── pyproject.toml
+├── package.xml
+├── Makefile
+└── LICENSE
 ```
 
 ## Requirements
 
-- Python 3.8+
-- `unitree-webrtc-connect` (pip install)
-- `numpy`
-- For standalone: `sounddevice`, `scipy` (optional, for WAV recording)
-- For ROS 2 node: ROS 2 Humble+, `rclpy`, `std_msgs`
-- For noise reduction: `noisereduce`, `scipy`
+See `pyproject.toml` for the full dependency list.
 
-**numpy version note**: If you also use `cv_bridge`, pin numpy to 1.26.x (`pip install numpy==1.26.4`). The `unitree-webrtc-connect` package pulls in numpy 2.x which is incompatible with `cv_bridge`.
+**System dependency**: `portaudio19-dev` (for `pyaudio`, pulled in by `unitree-webrtc-connect`).
+
+**numpy version note**: If you also use `cv_bridge`, pin numpy to 1.26.x (`pip install numpy==1.26.4`). The `unitree-webrtc-connect` package may pull in numpy 2.x which is incompatible with `cv_bridge`.
 
 ## Troubleshooting
 
@@ -130,17 +169,16 @@ go2-audio/
 
 **Audio is pure noise / white noise**
 - You're probably reading from DDS `/audiosender` — that topic is broken
-- Use this repo's WebRTC approach instead
+- Use this package's WebRTC approach instead
 
 **Very quiet audio / only motor noise**
 - The internal mic is near the motors — this is expected
-- Use the bandpass filter (300–3000Hz) and/or spectral subtraction
-- Consider an external USB microphone
+- Enable noise reduction or use an external USB microphone
+
+**pytest crashes on ROS 2 machine**
+- Use `make test` instead of bare `pytest`
+- Or: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/ -v`
 
 ## License
 
 MIT
-
-## Acknowledgments
-
-Built on [`unitree-webrtc-connect`](https://github.com/unitreerobotics/unitree_sdk2_python) by Unitree Robotics.

@@ -6,34 +6,35 @@ Connects to the Unitree Go2 via WebRTC, captures microphone audio,
 and saves to a WAV file. Optionally plays through speakers in real-time.
 
 Usage:
-    python capture_audio.py --robot-ip 192.168.123.161 --duration 10 --output audio.wav
-    python capture_audio.py --robot-ip 192.168.123.161 --play  # live playback, Ctrl+C to stop
+    python -m go2_audio.capture --robot-ip 192.168.123.161 --duration 10 --output audio.wav
+    python -m go2_audio.capture --robot-ip 192.168.123.161 --play  # live playback, Ctrl+C to stop
 """
 
 import argparse
 import asyncio
+import queue
 import signal
-import sys
-import time
 import wave
 
 import numpy as np
-
 from unitree_webrtc_connect import UnitreeWebRTCConnection, WebRTCConnectionMethod
+
+from go2_audio.audio_utils import rms_level, stereo_to_mono
 
 
 class AudioCapture:
-    def __init__(self, play=False):
+    def __init__(self, play=False, store_frames=False):
         self.frames = []
         self.frame_count = 0
         self.sample_rate = 48000
         self.play = play
+        self.store_frames = store_frames
         self._stream = None
         self._play_queue = None
 
         if self.play:
-            import queue
             import sounddevice as sd
+
             self._play_queue = queue.Queue(maxsize=100)
             self._stream = sd.OutputStream(
                 samplerate=self.sample_rate,
@@ -51,33 +52,25 @@ class AudioCapture:
             outdata[:n, 0] = chunk[:n]
             if n < frames:
                 outdata[n:, 0] = 0
-        except Exception:
+        except queue.Empty:
             outdata[:, 0] = 0
 
     async def on_audio_frame(self, frame):
         self.frame_count += 1
-        audio_data = frame.to_ndarray().flatten()
+        mono = stereo_to_mono(frame.to_ndarray())
 
-        # Deinterleave stereo → mono
-        if audio_data.shape[0] % 2 == 0:
-            left = audio_data[0::2]
-            right = audio_data[1::2]
-            mono = ((left.astype(np.int32) + right.astype(np.int32)) // 2).astype(np.int16)
-        else:
-            mono = audio_data.astype(np.int16)
-
-        self.frames.append(mono)
+        if self.store_frames:
+            self.frames.append(mono)
 
         if self.play and self._play_queue is not None:
             try:
                 self._play_queue.put_nowait(mono)
-            except Exception:
+            except queue.Full:
                 pass
 
         if self.frame_count == 1:
-            rms = int(np.sqrt(np.mean(mono.astype(np.float64) ** 2)))
-            print(f"First audio frame: {len(mono)} samples, "
-                  f"rate={frame.sample_rate}Hz, RMS={rms}")
+            rms = rms_level(mono)
+            print(f"First audio frame: {len(mono)} samples, rate={frame.sample_rate}Hz, RMS={rms}")
 
     def save_wav(self, path):
         if not self.frames:
@@ -99,7 +92,9 @@ class AudioCapture:
 
 
 async def run(args):
-    capture = AudioCapture(play=args.play)
+    # Only buffer frames in memory when we need to write them to disk.
+    store = bool(args.output)
+    capture = AudioCapture(play=args.play, store_frames=store)
 
     print(f"Connecting to Go2 at {args.robot_ip}...")
     conn = UnitreeWebRTCConnection(
@@ -134,14 +129,19 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Capture audio from Unitree Go2")
-    parser.add_argument("--robot-ip", default="192.168.123.161",
-                        help="Robot IP address (default: 192.168.123.161)")
-    parser.add_argument("--duration", type=float, default=None,
-                        help="Recording duration in seconds (omit for continuous)")
-    parser.add_argument("--output", "-o", default=None,
-                        help="Output WAV file path")
-    parser.add_argument("--play", action="store_true",
-                        help="Play audio through speakers in real-time")
+    parser.add_argument(
+        "--robot-ip", default="192.168.123.161", help="Robot IP address (default: 192.168.123.161)"
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=None,
+        help="Recording duration in seconds (omit for continuous)",
+    )
+    parser.add_argument("--output", "-o", default=None, help="Output WAV file path")
+    parser.add_argument(
+        "--play", action="store_true", help="Play audio through speakers in real-time"
+    )
     args = parser.parse_args()
 
     if not args.output and not args.play:

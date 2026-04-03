@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=64.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "go2-audio"
+version = "0.1.0"
+description = "Capture real microphone audio from the Unitree Go2 robot via WebRTC"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Yusuf Guenena", email = "yusuf.a.guenena@gmail.com" }
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "numpy",
+    "unitree-webrtc-connect",
+]
+
+[project.optional-dependencies]
+playback = [
+    "sounddevice",
+    "scipy",
+]
+ros = [
+    "noisereduce",
+    "scipy",
+]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+go2-audio-capture = "go2_audio.capture:main"
+go2-audio-node = "go2_audio.ros_node:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.data-files]
+"share/ament_index/resource_index/packages" = ["resource/go2_audio"]
+"share/go2_audio" = ["package.xml"]
+"share/go2_audio/launch" = ["launch/audio.launch.py"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["go2_audio*"]

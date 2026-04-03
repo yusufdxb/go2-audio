@@ -1,7 +1,11 @@
-__pycache__/
-*.pyc
-*.wav
+.venv/
+.ruff_cache/
 *.egg-info/
 dist/
 build/
+__pycache__/
+*.pyc
+*.wav
 .env
+log/
+.pytest_cache/

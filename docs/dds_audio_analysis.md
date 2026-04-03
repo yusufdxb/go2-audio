@@ -1,5 +1,10 @@
 # Why Go2's DDS `/audiosender` Topic Is Broken
 
+> **Reproducibility note**: The spectral tests described below were performed
+> manually during initial investigation. The analysis scripts are not included
+> in this repository. The results are documented here for reference but should
+> be treated as one-time empirical findings, not automated reproducible tests.
+
 ## Summary
 
 The Unitree Go2 robot publishes an `/audiosender` topic via DDS that appears to contain audio data. **It does not.** The topic contains uninitialized random bytes — effectively white noise. Real microphone audio is only available through the robot's WebRTC interface.
