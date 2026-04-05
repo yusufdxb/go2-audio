@@ -14,8 +14,8 @@ The Go2 delivers microphone audio exclusively via its **WebRTC connection** as a
 
 | Model | Audio | Notes |
 |-------|-------|-------|
-| Go2 Pro | Yes | Verified on hardware |
-| Go2 Edu | Yes | Expected to work (same hardware) |
+| Go2 EDU | Yes | Verified on hardware |
+| Go2 Pro | Yes | Expected to work (same hardware) |
 | Go2 Air | No | No microphone hardware |
 
 ## Prerequisites
