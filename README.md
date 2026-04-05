@@ -95,10 +95,18 @@ layout.data_offset: <frame_sequence_number>                  # monotonic counter
 
 ## Audio Quality Notes
 
-The Go2's internal microphone picks up significant **motor noise** (dominant below 300 Hz):
+The Go2's internal microphone sits inside the robot body, close to the motors. **Significant motor and mechanical noise is expected and very difficult to fully eliminate.** This is a hardware limitation, not a software bug. Do not expect clean, studio-quality audio from the onboard mic.
 
-- **Noise reduction** (ROS 2 node `noise_reduce:=true`) — learns the noise profile from the first ~2 seconds, then applies stationary spectral subtraction
-- **External USB microphone** on a companion computer (Jetson, etc.) gives much cleaner audio for speech recognition
+What to expect:
+
+- **Motor noise** dominates below ~300 Hz and varies with gait/movement
+- **Environmental noise** (fans, wind, footsteps) is also picked up
+- Even with noise reduction, residual noise will be audible in most conditions
+- Speech recognition accuracy depends heavily on the speaker's distance from the robot and ambient noise level
+
+The built-in noise reduction (`noise_reduce:=true`) uses stationary spectral subtraction, learning the noise profile from the first ~2 seconds of audio. It **reduces** motor hum but **cannot fully remove** it, especially during active locomotion when the noise profile changes.
+
+**For high-quality speech capture, use an external USB microphone** mounted on a companion computer (Jetson, etc.). This physically separates the mic from the motor noise source and produces significantly cleaner audio for ASR pipelines.
 
 ## Development
 
@@ -172,8 +180,9 @@ See `pyproject.toml` for the full dependency list.
 - Use this package's WebRTC approach instead
 
 **Very quiet audio / only motor noise**
-- The internal mic is near the motors — this is expected
-- Enable noise reduction or use an external USB microphone
+- The internal mic is inside the robot body near the motors — significant noise is expected and cannot be fully eliminated
+- Enable noise reduction (`noise_reduce:=true`) to reduce steady-state motor hum
+- For speech recognition or other quality-sensitive use cases, use an external USB microphone on a companion computer
 
 **pytest crashes on ROS 2 machine**
 - Use `make test` instead of bare `pytest`

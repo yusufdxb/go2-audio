@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y portaudio19-dev
       - run: pip install -e ".[dev]"
       - run: python3 -m pytest tests/ -v --ignore=tests/test_noise_reducer.py
 
@@ -37,6 +39,46 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y portaudio19-dev
       - run: pip install -e ".[dev,ros]"
       - run: python3 -m pytest tests/test_noise_reducer.py -v
-    continue-on-error: true
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install build
+      - name: Build wheel and sdist
+        run: python3 -m build --sdist --wheel
+      - name: Verify wheel metadata
+        run: |
+          python3 -c "
+          import zipfile, pathlib
+          whl = list(pathlib.Path('dist').glob('*.whl'))[0]
+          assert 'UNKNOWN' not in whl.name, f'UNKNOWN in wheel name: {whl.name}'
+          assert '0.0.0' not in whl.name, f'0.0.0 in wheel name: {whl.name}'
+          print(f'wheel: {whl.name}')
+          with zipfile.ZipFile(whl) as z:
+              meta = [n for n in z.namelist() if n.endswith('METADATA')][0]
+              for line in z.read(meta).decode().splitlines():
+                  if line.startswith(('Name:', 'Version:')):
+                      print(f'  {line}')
+          "
+      - name: Verify setup.py metadata (colcon path)
+        run: |
+          name=$(python3 setup.py --name 2>/dev/null)
+          version=$(python3 setup.py --version 2>/dev/null)
+          echo "setup.py: name=$name version=$version"
+          [ "$name" != "UNKNOWN" ] || { echo "FAIL: setup.py --name is UNKNOWN"; exit 1; }
+          [ "$version" != "0.0.0" ] || { echo "FAIL: setup.py --version is 0.0.0"; exit 1; }
+      - name: Smoke test imports
+        run: |
+          sudo apt-get update && sudo apt-get install -y portaudio19-dev
+          pip install -e .
+          python3 -c "from go2_audio import __version__; assert __version__ == '0.1.0', __version__"
+          python3 -c "from go2_audio.audio_utils import stereo_to_mono, rms_level"
+          python3 -c "from go2_audio.denoise import NoiseReducer, SAMPLE_RATE, FRAME_SIZE"
